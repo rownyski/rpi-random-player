@@ -20,6 +20,7 @@ from evdev import ecodes
 VIDEO_EXTENSIONS = {".mp4", ".mkv"}
 USB_SCAN_ROOTS = [Path("/media"), Path("/run/media"), Path("/mnt")]
 USB_AUTOMOUNT_POINT = Path(os.environ.get("USB_AUTOMOUNT_POINT", "/mnt/usb"))
+PREFERRED_USB_MOUNT_POINT = Path(os.environ.get("USB_MOUNT_POINT", "/mnt/usb"))
 USB_DEVICE_GLOB = "sd*[0-9]"
 SUPPORTED_USB_FILESYSTEMS = {"vfat", "exfat", "ntfs", "ext4", "ext3", "ext2"}
 SCAN_TIMEOUT_SECONDS = 20.0
@@ -275,13 +276,59 @@ class RandomVideoPlayer:
                 )
                 break
 
-            candidates.extend(self._collect_videos_under_mount(mount, deadline))
+            if not os.path.ismount(mount):
+                logger.warning("Skipping non-mounted path listed as USB mount: %s", mount)
+                continue
+
+            mount_candidates = self._collect_videos_under_mount(mount, deadline)
+            logger.info("Scanned mount %s -> %d video file(s)", mount, len(mount_candidates))
+            candidates.extend(mount_candidates)
 
         return candidates
 
 
     def _discover_usb_mounts(self) -> list[Path]:
-        mounts: set[Path] = set()
+        mounts_by_source: dict[str, list[Path]] = {}
+        proc_mounts = Path("/proc/mounts")
+        if not proc_mounts.exists():
+            return []
+
+        for line in proc_mounts.read_text(encoding="utf-8", errors="ignore").splitlines():
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+
+            source, mountpoint, fs_type = parts[:3]
+            mount_path = Path(mountpoint)
+            if not source.startswith("/dev/sd"):
+                continue
+            if fs_type not in SUPPORTED_USB_FILESYSTEMS:
+                continue
+            if not any(str(mount_path).startswith(str(root)) for root in USB_SCAN_ROOTS):
+                continue
+            if not mount_path.exists() or not os.path.ismount(mount_path):
+                continue
+
+            mounts_by_source.setdefault(source, []).append(mount_path)
+
+        selected_mounts: list[Path] = []
+        for source, mountpoints in mounts_by_source.items():
+            unique = sorted(set(mountpoints))
+            preferred = next((m for m in unique if m == PREFERRED_USB_MOUNT_POINT), None)
+            selected = preferred or unique[0]
+            if len(unique) > 1:
+                logger.info(
+                    "Device %s mounted at multiple paths (%s); using %s",
+                    source,
+                    ", ".join(str(m) for m in unique),
+                    selected,
+                )
+            selected_mounts.append(selected)
+
+        return sorted(selected_mounts)
+
+    def _attempt_usb_automount(self) -> None:
+        mounted_sources: set[str] = set()
         proc_mounts = Path("/proc/mounts")
         if not proc_mounts.exists():
             return []
