@@ -330,32 +330,6 @@ class RandomVideoPlayer:
     def _attempt_usb_automount(self) -> None:
         mounted_sources: set[str] = set()
         proc_mounts = Path("/proc/mounts")
-        if not proc_mounts.exists():
-            return []
-
-        for line in proc_mounts.read_text(encoding="utf-8", errors="ignore").splitlines():
-            parts = line.split()
-            if len(parts) < 3:
-                continue
-
-            source, mountpoint, fs_type = parts[:3]
-            mount_path = Path(mountpoint)
-            if not source.startswith("/dev/sd"):
-                continue
-            if fs_type not in SUPPORTED_USB_FILESYSTEMS:
-                continue
-            if not any(str(mount_path).startswith(str(root)) for root in USB_SCAN_ROOTS):
-                continue
-            if not mount_path.exists() or not os.path.ismount(mount_path):
-                continue
-
-            mounts.add(mount_path)
-
-        return sorted(mounts)
-
-    def _attempt_usb_automount(self) -> None:
-        mounted_sources: set[str] = set()
-        proc_mounts = Path("/proc/mounts")
         if proc_mounts.exists():
             for line in proc_mounts.read_text(encoding="utf-8", errors="ignore").splitlines():
                 parts = line.split()

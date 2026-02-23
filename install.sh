@@ -24,6 +24,38 @@ fi
 
 sudo python3 -m pip install --break-system-packages -r "$INSTALL_DIR/requirements.txt"
 
+
+
+# System-wide mpv config used by root/systemd service user.
+sudo mkdir -p /etc/mpv
+sudo bash -c 'cat <<"EOF" > /etc/mpv/mpv.conf
+hwdec=drm
+vo=gpu
+gpu-context=drm
+video-sync=display-resample
+interpolation=no
+EOF'
+
+# Also install per-user config for common interactive users (pi/admin/current sudo user).
+for candidate in "${SUDO_USER:-}" pi admin; do
+  [[ -z "$candidate" ]] && continue
+  if ! id -u "$candidate" >/dev/null 2>&1; then
+    continue
+  fi
+
+  user_home=$(getent passwd "$candidate" | cut -d: -f6)
+  [[ -z "$user_home" ]] && continue
+
+  sudo mkdir -p "$user_home/.config/mpv"
+  sudo bash -c 'cat <<"EOF" > '"$user_home"'/.config/mpv/mpv.conf
+hwdec=drm
+vo=gpu
+gpu-context=drm
+video-sync=display-resample
+interpolation=no
+EOF'
+  sudo chown -R "$candidate:$candidate" "$user_home/.config/mpv"
+done
 sudo cp "$INSTALL_DIR/player.service" "/etc/systemd/system/$SERVICE_NAME"
 # Backward-compatible alias for older instructions that referenced player.service.
 sudo cp "$INSTALL_DIR/player.service" "/etc/systemd/system/$LEGACY_SERVICE_NAME"
