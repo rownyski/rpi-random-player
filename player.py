@@ -20,6 +20,12 @@ from evdev import ecodes
 VIDEO_EXTENSIONS = {".mp4", ".mkv"}
 USB_SCAN_ROOTS = [Path("/media"), Path("/run/media"), Path("/mnt")]
 POLL_INTERVAL_SECONDS = 0.05
+HDMI_STATUS_TO_AUDIO_DEVICE = {
+    Path("/sys/class/drm/card1-HDMI-A-1/status"): "alsa/plughw:CARD=vc4hdmi0,DEV=0",
+    Path("/sys/class/drm/card1-HDMI-A-2/status"): "alsa/plughw:CARD=vc4hdmi1,DEV=0",
+    Path("/sys/class/drm/card0-HDMI-A-1/status"): "alsa/plughw:CARD=vc4hdmi0,DEV=0",
+    Path("/sys/class/drm/card0-HDMI-A-2/status"): "alsa/plughw:CARD=vc4hdmi1,DEV=0",
+}
 
 MPV_BASE_CMD = [
     "mpv",
@@ -142,6 +148,26 @@ class RandomVideoPlayer:
             # Do not rescan on auto-next to keep transitions fast.
             self.start_random_video(force_restart=False, rescan=False)
 
+    def _resolve_audio_device_arg(self) -> list[str]:
+        # Allow explicit override if needed.
+        forced = os.environ.get("AUDIO_DEVICE", "").strip()
+        if forced:
+            logger.info("Using forced audio device from AUDIO_DEVICE=%s", forced)
+            return [f"--audio-device={forced}"]
+
+        # Auto-detect connected HDMI connector and map to ALSA card.
+        for status_path, audio_device in HDMI_STATUS_TO_AUDIO_DEVICE.items():
+            try:
+                status = status_path.read_text(encoding="utf-8", errors="ignore").strip().lower()
+            except OSError:
+                continue
+            if status == "connected":
+                logger.info("Detected active HDMI connector %s -> %s", status_path.parent.name, audio_device)
+                return [f"--audio-device={audio_device}"]
+
+        logger.info("No active HDMI connector detected; using ALSA default audio routing.")
+        return []
+
     def start_random_video(self, force_restart: bool, rescan: bool = True) -> None:
         if self.mpv_process and force_restart:
             logger.info("Force restart requested; stopping current video first.")
@@ -160,7 +186,7 @@ class RandomVideoPlayer:
         self.last_played = selected
         self.auto_restart = True
         self.mpv_process = subprocess.Popen(
-            [*MPV_BASE_CMD, str(selected)],
+            [*MPV_BASE_CMD, *self._resolve_audio_device_arg(), str(selected)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             preexec_fn=os.setsid,
