@@ -7,6 +7,7 @@ Standalone random video playback daemon for Raspberry Pi OS Lite with `mpv`.
 - Recursively scans mounted USB drives (`/media`, `/run/media`, `/mnt`) for `.mp4` and `.mkv` files.
 - If no USB mount is detected, the daemon attempts to auto-mount `/dev/sd*` partitions (for example `/dev/sda1`) under `/mnt/usb` before scanning.
 - The scanner now only trusts real mount points from `/proc/mounts` (not plain folders) and retries mount+scan once when a detected mount has no playable videos.
+- If the same USB device is mounted at multiple paths (for example `/mnt/testusb` and `/mnt/usb`), the player now prefers `USB_MOUNT_POINT` (`/mnt/usb` by default) and logs which path it selected.
 - Keyboard controls in development mode:
   - `S`: start random playback (or restart with another random video if already playing).
   - `E`: stop playback immediately.
@@ -162,3 +163,30 @@ sudo journalctl -u rpi-random-player.service -f
 - No GUI libraries are required.
 - Designed for Raspberry Pi 400 (dev) and Raspberry Pi 4 Model B (target).
 - Future input migration to GPIO can replace keyboard handlers in `player.py`.
+
+
+## Post-merge update on Raspberry Pi
+
+After merge, run these commands on your Raspberry Pi.
+
+1) Pull latest + reinstall service/files
+
+```bash
+cd ~/rpi-random-player/rpi-random-player
+git pull
+REPO_URL=https://github.com/rownyski/rpi-random-player.git bash install.sh
+```
+
+2) Verify service is active
+
+```bash
+sudo systemctl status rpi-random-player.service --no-pager
+```
+
+3) Watch live logs while testing keys
+
+```bash
+sudo journalctl -u rpi-random-player.service -f
+```
+
+Press `S` and `E` on keyboard.
