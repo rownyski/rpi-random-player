@@ -360,8 +360,17 @@ def main() -> None:
     if args.diagnose_keyboard:
         raise SystemExit(diagnose_keyboard(args.diagnose_seconds))
 
-    player = RandomVideoPlayer(debug=args.debug)
-    player.run()
+    while True:
+        player = RandomVideoPlayer(debug=args.debug)
+        try:
+            player.run()
+        except Exception:
+            logger.exception("Unhandled player error; restarting player loop in 2s.")
+            time.sleep(2)
+            continue
+
+        logger.warning("Player loop exited unexpectedly; restarting in 2s.")
+        time.sleep(2)
 
 
 if __name__ == "__main__":
