@@ -1,10 +1,14 @@
 [Unit]
 Description=Raspberry Pi Random Video Player
-After=network.target
+After=network.target local-fs.target
 
 [Service]
 Type=simple
 WorkingDirectory=/opt/rpi-random-player
+Environment=USB_MOUNT_DEVICE=/dev/disk/by-label/MEDIA
+Environment=USB_MOUNT_POINT=/mnt/usb
+ExecStartPre=/bin/mkdir -p ${USB_MOUNT_POINT}
+ExecStartPre=/bin/sh -c 'mountpoint -q "${USB_MOUNT_POINT}" || mount "${USB_MOUNT_DEVICE}" "${USB_MOUNT_POINT}"'
 ExecStart=/usr/bin/python3 /opt/rpi-random-player/player.py
 Restart=always
 RestartSec=1
