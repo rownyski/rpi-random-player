@@ -73,6 +73,16 @@ sudo systemctl restart rpi-random-player.service
 sudo journalctl -u rpi-random-player.service -f
 ```
 
+If you see `Unit rpi-random-player.service could not be found`, run the installer again and then reload systemd:
+
+```bash
+REPO_URL=https://github.com/rownyski/rpi-random-player.git bash install.sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now rpi-random-player.service
+```
+
+Compatibility note: installer also drops `player.service` for older docs, but the canonical unit name is `rpi-random-player.service`.
+
 ## Notes
 
 - No GUI libraries are required.
