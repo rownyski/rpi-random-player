@@ -5,6 +5,92 @@ REPO_URL="${REPO_URL:-https://github.com/rownyski/rpi-random-player.git}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/rpi-random-player}"
 SERVICE_NAME="rpi-random-player.service"
 LEGACY_SERVICE_NAME="player.service"
+ENV_FILE="/etc/default/rpi-random-player"
+
+detect_audio_device() {
+  local connector
+
+  # Prefer HDMI-A-2 first (matches many RPi4 setups using the secondary micro-HDMI port).
+  for connector in \
+    /sys/class/drm/card*-HDMI-A-2/status \
+    /sys/class/drm/card*-HDMI-A-1/status; do
+    [[ -r "$connector" ]] || continue
+    if [[ "$(cat "$connector" 2>/dev/null | tr '[:upper:]' '[:lower:]')" == "connected" ]]; then
+      case "$connector" in
+        *HDMI-A-2/status) printf '%s' "alsa/plughw:CARD=vc4hdmi1,DEV=0"; return 0 ;;
+        *HDMI-A-1/status) printf '%s' "alsa/plughw:CARD=vc4hdmi0,DEV=0"; return 0 ;;
+      esac
+    fi
+  done
+
+  # Fallback that mirrors the known-working manual command from field testing.
+  printf '%s' "alsa/plughw:CARD=vc4hdmi1,DEV=0"
+}
+
+detect_drm_mode() {
+  local modes_output preferred
+  preferred=""
+
+  # Allow explicit installer override.
+  if [[ -n "${MPV_DRM_MODE:-}" ]]; then
+    printf '%s' "${MPV_DRM_MODE}"
+    return 0
+  fi
+
+  if command -v modetest >/dev/null 2>&1; then
+    modes_output="$(modetest -M vc4 -c 2>/dev/null || true)"
+    if [[ -n "$modes_output" ]]; then
+      preferred="$(printf '%s\n' "$modes_output" | grep -Eo "[0-9]{3,4}x[0-9]{3,4}@[0-9]{2,3}(\.[0-9]+)?" | head -n 1 || true)"
+      if printf '%s\n' "$modes_output" | grep -Eq "1920x1080@60(\.00)?"; then
+        preferred="1920x1080@60"
+      fi
+
+      # Some modetest builds show mode + refresh in separate columns (e.g. 1920x1080 60.00).
+      if [[ -z "$preferred" ]]; then
+        preferred="$(printf '%s\n' "$modes_output" | awk '/[0-9]{3,4}x[0-9]{3,4}/ {for (i=1; i<=NF; i++) {if ($i ~ /^[0-9]{3,4}x[0-9]{3,4}$/ && (i+1)<=NF && $(i+1) ~ /^[0-9]+(\.[0-9]+)?$/) {printf "%s@%s\n", $i, $(i+1); exit}}}' | head -n 1 || true)"
+      fi
+    fi
+  fi
+
+  if [[ -z "$preferred" ]]; then
+    preferred="$(for f in /sys/class/drm/card*-HDMI-A-*/modes; do
+      [[ -r "$f" ]] || continue
+      if head -n 30 "$f" | grep -Eq '^1920x1080$'; then
+        echo "1920x1080@60"
+        break
+      fi
+      if head -n 30 "$f" | grep -Eq '^1920x1080p60$'; then
+        echo "1920x1080@60"
+        break
+      fi
+      head -n 1 "$f" | sed -n '1p' | awk '{print $1 "@60"}'
+      break
+    done)"
+  fi
+
+  if [[ -z "$preferred" ]]; then
+    preferred="1920x1080@60"
+  fi
+
+  printf '%s' "$preferred"
+}
+
+write_env_file() {
+  local drm_mode audio_device
+  drm_mode="$(detect_drm_mode)"
+  audio_device="$(detect_audio_device)"
+
+  sudo mkdir -p "$(dirname "$ENV_FILE")"
+  {
+    echo "# Managed by install.sh"
+    echo "# Override values here if needed, then restart rpi-random-player.service"
+    echo "MPV_DRM_MODE=$drm_mode"
+    echo "AUDIO_DEVICE=$audio_device"
+  } | sudo tee "$ENV_FILE" >/dev/null
+
+  echo "Configured MPV_DRM_MODE=$drm_mode in $ENV_FILE"
+  echo "Configured AUDIO_DEVICE=$audio_device in $ENV_FILE"
+}
 
 if [[ -z "$REPO_URL" ]]; then
   echo "REPO_URL is empty; set it to a valid git URL."
@@ -13,7 +99,7 @@ fi
 
 sudo apt-get update
 sudo apt-get -y upgrade
-sudo apt-get install -y mpv ffmpeg python3 python3-pip python3-evdev git
+sudo apt-get install -y mpv ffmpeg python3 python3-pip python3-evdev git libdrm-tests
 
 if [[ -d "$INSTALL_DIR/.git" ]]; then
   sudo git -C "$INSTALL_DIR" pull --ff-only
@@ -23,6 +109,7 @@ else
 fi
 
 sudo python3 -m pip install --break-system-packages -r "$INSTALL_DIR/requirements.txt"
+write_env_file
 
 sudo cp "$INSTALL_DIR/player.service" "/etc/systemd/system/$SERVICE_NAME"
 # Backward-compatible alias for older instructions that referenced player.service.

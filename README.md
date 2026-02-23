@@ -62,8 +62,10 @@ curl -sSL https://github.com/rownyski/rpi-random-player/raw/main/install.sh | RE
 - Fullscreen playback uses:
 
 ```text
---fullscreen --hwdec=drm --no-terminal --quiet --no-osc --no-osd-bar
+--fullscreen --vo=gpu --gpu-context=drm --hwdec=drm --video-sync=audio --ao=alsa --no-terminal --quiet --no-osc --no-osd-bar
 ```
+
+Installer now auto-detects HDMI modes using `modetest -M vc4 -c` (fallback: `/sys/class/drm/card*-HDMI-A-*/modes`) and writes `MPV_DRM_MODE` to `/etc/default/rpi-random-player`. It prefers `1920x1080@60` when available and falls back to `1920x1080@60` if detection fails, so the service still gets a deterministic mode. It also writes `AUDIO_DEVICE` based on connected HDMI ports (prefers HDMI-A-2 / `vc4hdmi1`) to avoid no-sound cases.
 
 ## Service management
 
