@@ -5,7 +5,6 @@ Standalone random video playback daemon for Raspberry Pi OS Lite with `mpv`.
 ## Features
 
 - Recursively scans mounted USB drives (`/media`, `/run/media`, `/mnt`) for `.mp4` and `.mkv` files.
-- Classifies videos with `ffprobe` into `safe`, `medium`, and `risky` playback buckets.
 - Keyboard controls in development mode:
   - `S`: start random playback (or restart with another random video if already playing).
   - `E`: stop playback immediately.
@@ -55,9 +54,7 @@ curl -sSL https://github.com/rownyski/rpi-random-player/raw/main/install.sh | RE
 ## Runtime behavior
 
 - On each `S` press, USB storage is re-scanned.
-- Selection probabilities:
-  - If `safe` exists: 80% from `safe`, 20% from `medium` (if any).
-  - `risky` is chosen only when `safe` and `medium` are unavailable.
+- Randomly selects from discovered `.mp4`/`.mkv` files (with immediate-repeat protection when 2+ videos exist).
 - `STOP` (`E`) sends `SIGTERM` to `mpv` immediately.
 - Fullscreen playback uses:
 
@@ -106,14 +103,10 @@ Expected: you should see `EVENT ... keycode=KEY_S` and `EVENT ... keycode=KEY_E`
 
 If you see `pw.conf: can't load config client.conf` from `mpv`, this is usually a PipeWire warning and playback can still work. The player forces ALSA output (`--ao=alsa`) to reduce this noise on Raspberry Pi OS Lite.
 
-If `S` seems to "hang" after `Detected mounts for scanning`, watch for new progress logs:
-- `Found N candidate video files`
-- `Selection pool: cached=X uncached=Y`
-- `No cached classifications available; probing one file: ...` (first-run path)
+On START (`S`), the player refreshes the file list from USB and picks a random file.
+On auto-next (natural end), it reuses the preloaded list for fast transitions.
 
-The first scan on a large USB can take time because each file is probed; subsequent starts are faster due to in-memory classification cache.
-
-Performance note: START now uses cached classifications first and classifies only one uncached file when needed, so playback can begin quickly even with large libraries. Cache is persisted at `/var/cache/rpi-random-player/classification-cache.json`.
+If you suspect duplicate selections, watch for `Starting playback: ...` logs; the player avoids immediate repeats whenever at least 2 videos are available.
 
 3. Run the player in foreground with debug logs:
 
@@ -126,7 +119,7 @@ sudo python3 player.py --debug
 Press `S` / `E` and verify logs for:
 - keyboard event detection,
 - mount discovery,
-- video classification counts,
+- candidate discovery and random selection,
 - mpv start/stop messages.
 
 4. Restore service mode:
