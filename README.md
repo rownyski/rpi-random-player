@@ -82,6 +82,32 @@ sudo systemctl enable --now rpi-random-player.service
 
 Compatibility note: installer also drops `player.service` for older docs, but the canonical unit name is `rpi-random-player.service`.
 
+To ensure USB is mounted after reboot, the systemd unit now runs a pre-start mount step using:
+
+- `USB_MOUNT_DEVICE` (default: `/dev/disk/by-label/MEDIA`)
+- `USB_MOUNT_POINT` (default: `/mnt/usb`)
+
+If your drive label/device differs, create an override:
+
+```bash
+sudo systemctl edit rpi-random-player.service
+```
+
+Then add:
+
+```ini
+[Service]
+Environment=USB_MOUNT_DEVICE=/dev/sda1
+Environment=USB_MOUNT_POINT=/mnt/usb
+```
+
+Apply with:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart rpi-random-player.service
+```
+
 
 ## Command-line debugging (step-by-step)
 

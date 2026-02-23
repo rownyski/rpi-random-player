@@ -352,57 +352,6 @@ class RandomVideoPlayer:
                 (result.stderr or result.stdout).strip() or "no output",
             )
 
-    def _attempt_usb_automount(self) -> None:
-        mounted_sources: set[str] = set()
-        proc_mounts = Path("/proc/mounts")
-        if proc_mounts.exists():
-            for line in proc_mounts.read_text(encoding="utf-8", errors="ignore").splitlines():
-                parts = line.split()
-                if len(parts) >= 2:
-                    mounted_sources.add(parts[0])
-
-        devices = sorted(Path("/dev").glob(USB_DEVICE_GLOB))
-        if not devices:
-            logger.debug("No /dev/%s device nodes found for auto-mount attempt.", USB_DEVICE_GLOB)
-            return
-
-        for device in devices:
-            source = str(device)
-            if source in mounted_sources:
-                continue
-
-            target = USB_AUTOMOUNT_POINT
-            try:
-                has_files = target.exists() and any(target.iterdir())
-            except OSError:
-                has_files = False
-            if has_files:
-                target = Path(f"{USB_AUTOMOUNT_POINT}-{device.name}")
-
-            try:
-                target.mkdir(parents=True, exist_ok=True)
-            except OSError as exc:
-                logger.warning("Could not create mount directory %s: %s", target, exc)
-                continue
-
-            result = subprocess.run(
-                ["mount", source, str(target)],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if result.returncode == 0:
-                logger.info("Mounted USB partition %s at %s", source, target)
-                return
-
-            logger.warning(
-                "Auto-mount failed for %s -> %s (code=%s): %s",
-                source,
-                target,
-                result.returncode,
-                (result.stderr or result.stdout).strip() or "no output",
-            )
-
     def select_video(self, videos: list[Path]) -> Optional[Path]:
         if not videos:
             return None
