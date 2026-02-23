@@ -5,6 +5,8 @@ Standalone random video playback daemon for Raspberry Pi OS Lite with `mpv`.
 ## Features
 
 - Recursively scans mounted USB drives (`/media`, `/run/media`, `/mnt`) for `.mp4` and `.mkv` files.
+- If no USB mount is detected, the daemon attempts to auto-mount `/dev/sd*` partitions (for example `/dev/sda1`) under `/mnt/usb` before scanning.
+- The scanner now only trusts real mount points from `/proc/mounts` (not plain folders) and retries mount+scan once when a detected mount has no playable videos.
 - Keyboard controls in development mode:
   - `S`: start random playback (or restart with another random video if already playing).
   - `E`: stop playback immediately.
