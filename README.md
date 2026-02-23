@@ -83,6 +83,47 @@ sudo systemctl enable --now rpi-random-player.service
 
 Compatibility note: installer also drops `player.service` for older docs, but the canonical unit name is `rpi-random-player.service`.
 
+
+## Command-line debugging (step-by-step)
+
+If service is running but keyboard presses do nothing, use this sequence:
+
+1. Confirm service is active:
+
+```bash
+sudo systemctl status rpi-random-player.service --no-pager
+```
+
+2. Run keyboard diagnosis directly from CLI (outside systemd):
+
+```bash
+cd /opt/rpi-random-player
+sudo python3 player.py --debug --diagnose-keyboard --diagnose-seconds 30
+```
+
+Expected: you should see `EVENT ... keycode=KEY_S` and `EVENT ... keycode=KEY_E` logs when pressing keys.
+
+3. Run the player in foreground with debug logs:
+
+```bash
+cd /opt/rpi-random-player
+sudo systemctl stop rpi-random-player.service
+sudo python3 player.py --debug
+```
+
+Press `S` / `E` and verify logs for:
+- keyboard event detection,
+- mount discovery,
+- video classification counts,
+- mpv start/stop messages.
+
+4. Restore service mode:
+
+```bash
+sudo systemctl restart rpi-random-player.service
+sudo journalctl -u rpi-random-player.service -f
+```
+
 ## Notes
 
 - No GUI libraries are required.
