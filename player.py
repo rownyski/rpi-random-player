@@ -32,9 +32,12 @@ MPV_BASE_CMD = [
     "--quiet",
     "--no-osc",
     "--no-osd-bar",
+    "--ao=alsa",
 ]
 
 logger = logging.getLogger("rpi_random_player")
+
+CACHE_FILE_PATH = Path("/var/cache/rpi-random-player/classification-cache.json")
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,8 @@ class RandomVideoPlayer:
         self.auto_restart = False
         self.running = True
         self.debug = debug
+        self.classification_cache: dict[Path, tuple[int, int, str]] = {}
+        self._load_classification_cache()
 
     def run(self) -> None:
         keyboards = self._open_keyboard_devices()
@@ -150,8 +155,13 @@ class RandomVideoPlayer:
             self.stop_playback()
 
         logger.info("Scanning USB mounts for playable videos...")
-        videos = self.scan_and_classify_videos()
-        selected = self.select_video(videos)
+        candidates = self.scan_video_candidates()
+        if not candidates:
+            self.auto_restart = False
+            logger.warning("No playable videos found on mounted USB storage.")
+            return
+
+        selected = self.select_video_from_candidates(candidates)
         if not selected:
             self.auto_restart = False
             logger.warning("No playable videos found on mounted USB storage.")
@@ -180,7 +190,7 @@ class RandomVideoPlayer:
         except ProcessLookupError:
             logger.debug("mpv process already exited before SIGTERM.")
 
-    def scan_and_classify_videos(self) -> list[VideoInfo]:
+    def scan_video_candidates(self) -> list[Path]:
         candidates: list[Path] = []
         mounts = self._discover_usb_mounts()
         logger.info("Detected mounts for scanning: %s", ", ".join(str(m) for m in mounts) if mounts else "<none>")
@@ -189,13 +199,108 @@ class RandomVideoPlayer:
                 if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS:
                     candidates.append(path)
 
-        videos = [VideoInfo(path=path, bucket=self.classify_video(path)) for path in candidates]
-        if videos:
-            safe = sum(video.bucket == "safe" for video in videos)
-            medium = sum(video.bucket == "medium" for video in videos)
-            risky = sum(video.bucket == "risky" for video in videos)
-            logger.info("Video classification totals: safe=%d medium=%d risky=%d", safe, medium, risky)
-        return videos
+        logger.info("Found %d candidate video files", len(candidates))
+        return candidates
+
+    def select_video_from_candidates(self, candidates: list[Path]) -> Optional[VideoInfo]:
+        videos_from_cache: list[VideoInfo] = []
+        uncached: list[Path] = []
+
+        for path in candidates:
+            bucket = self._cached_bucket_for(path)
+            if bucket is None:
+                uncached.append(path)
+            else:
+                videos_from_cache.append(VideoInfo(path=path, bucket=bucket))
+
+        logger.info("Selection pool: cached=%d uncached=%d", len(videos_from_cache), len(uncached))
+
+        if videos_from_cache:
+            safe = sum(video.bucket == "safe" for video in videos_from_cache)
+            medium = sum(video.bucket == "medium" for video in videos_from_cache)
+            risky = sum(video.bucket == "risky" for video in videos_from_cache)
+            logger.info("Cached classification totals: safe=%d medium=%d risky=%d", safe, medium, risky)
+            selected = self.select_video(videos_from_cache)
+            if selected:
+                return selected
+
+        # First-run fast path: classify only one random uncached file to keep START latency low.
+        if uncached:
+            selected_path = random.choice(uncached)
+            logger.info("No cached classifications available; probing one file: %s", selected_path)
+            bucket = self.classify_video(selected_path)
+            self._update_cache(selected_path, bucket)
+            return VideoInfo(path=selected_path, bucket=bucket)
+
+        return None
+
+    def _cached_bucket_for(self, path: Path) -> Optional[str]:
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+
+        cached = self.classification_cache.get(path)
+        if not cached:
+            return None
+
+        mtime_ns, size, bucket = cached
+        if mtime_ns == stat.st_mtime_ns and size == stat.st_size:
+            return bucket
+
+        return None
+
+    def _update_cache(self, path: Path, bucket: str) -> None:
+        try:
+            stat = path.stat()
+        except OSError:
+            return
+
+        self.classification_cache[path] = (stat.st_mtime_ns, stat.st_size, bucket)
+        self._save_classification_cache()
+
+    def _load_classification_cache(self) -> None:
+        if not CACHE_FILE_PATH.exists():
+            return
+
+        try:
+            payload = json.loads(CACHE_FILE_PATH.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.debug("Failed to read classification cache: %s", exc)
+            return
+
+        entries = payload.get("entries", {}) if isinstance(payload, dict) else {}
+        loaded = 0
+        for key, value in entries.items():
+            if not isinstance(value, dict):
+                continue
+            mtime_ns = value.get("mtime_ns")
+            size = value.get("size")
+            bucket = value.get("bucket")
+            if not isinstance(mtime_ns, int) or not isinstance(size, int) or not isinstance(bucket, str):
+                continue
+            self.classification_cache[Path(key)] = (mtime_ns, size, bucket)
+            loaded += 1
+
+        if loaded:
+            logger.info("Loaded %d cached classifications", loaded)
+
+    def _save_classification_cache(self) -> None:
+        try:
+            CACHE_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            data = {
+                "entries": {
+                    str(path): {
+                        "mtime_ns": mtime_ns,
+                        "size": size,
+                        "bucket": bucket,
+                    }
+                    for path, (mtime_ns, size, bucket) in self.classification_cache.items()
+                }
+            }
+            CACHE_FILE_PATH.write_text(json.dumps(data), encoding="utf-8")
+        except Exception as exc:
+            logger.debug("Failed to persist classification cache: %s", exc)
 
     def _discover_usb_mounts(self) -> list[Path]:
         mounts: set[Path] = set()
