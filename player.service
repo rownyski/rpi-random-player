@@ -1,0 +1,16 @@
+[Unit]
+Description=Raspberry Pi Random Video Player
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/rpi-random-player
+ExecStart=/usr/bin/python3 /opt/rpi-random-player/player.py
+Restart=always
+RestartSec=1
+User=root
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
