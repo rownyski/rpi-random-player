@@ -35,7 +35,10 @@ HDMI_STATUS_TO_AUDIO_DEVICE = {
 MPV_BASE_CMD = [
     "mpv",
     "--fullscreen",
+    "--vo=gpu",
+    "--gpu-context=drm",
     "--hwdec=drm",
+    "--video-sync=audio",
     "--no-terminal",
     "--quiet",
     "--no-osc",
@@ -173,6 +176,14 @@ class RandomVideoPlayer:
         logger.info("No active HDMI connector detected; using ALSA default audio routing.")
         return []
 
+    def _resolve_drm_mode_arg(self) -> list[str]:
+        drm_mode = os.environ.get("MPV_DRM_MODE", "").strip()
+        if not drm_mode:
+            return []
+
+        logger.info("Using forced DRM mode from MPV_DRM_MODE=%s", drm_mode)
+        return [f"--drm-mode={drm_mode}"]
+
     def start_random_video(self, force_restart: bool, rescan: bool = True) -> None:
         if self.mpv_process and force_restart:
             logger.info("Force restart requested; stopping current video first.")
@@ -191,7 +202,7 @@ class RandomVideoPlayer:
         self.last_played = selected
         self.auto_restart = True
         self.mpv_process = subprocess.Popen(
-            [*MPV_BASE_CMD, *self._resolve_audio_device_arg(), str(selected)],
+            [*MPV_BASE_CMD, *self._resolve_drm_mode_arg(), *self._resolve_audio_device_arg(), str(selected)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             preexec_fn=os.setsid,
