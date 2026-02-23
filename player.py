@@ -19,6 +19,7 @@ from evdev import ecodes
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv"}
 USB_SCAN_ROOTS = [Path("/media"), Path("/run/media"), Path("/mnt")]
+SCAN_TIMEOUT_SECONDS = 20.0
 POLL_INTERVAL_SECONDS = 0.05
 HDMI_STATUS_TO_AUDIO_DEVICE = {
     Path("/sys/class/drm/card1-HDMI-A-1/status"): "alsa/plughw:CARD=vc4hdmi0,DEV=0",
@@ -208,17 +209,49 @@ class RandomVideoPlayer:
 
     def refresh_candidates(self, reason: str) -> None:
         started = time.monotonic()
+        deadline = started + SCAN_TIMEOUT_SECONDS
         candidates: list[Path] = []
         mounts = self._discover_usb_mounts()
         logger.info("Refreshing video list (%s). Detected mounts: %s", reason, ", ".join(str(m) for m in mounts) if mounts else "<none>")
         for mount in mounts:
-            for path in mount.rglob("*"):
-                if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS:
-                    candidates.append(path)
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "USB scan timeout reached after %.1fs; using partial results.",
+                    SCAN_TIMEOUT_SECONDS,
+                )
+                break
+
+            candidates.extend(self._collect_videos_under_mount(mount, deadline))
 
         self.video_candidates = candidates
         elapsed = time.monotonic() - started
         logger.info("Found %d candidate video files in %.2fs", len(self.video_candidates), elapsed)
+
+    def _collect_videos_under_mount(self, mount: Path, deadline: float) -> list[Path]:
+        candidates: list[Path] = []
+        stack = [mount]
+
+        while stack:
+            if time.monotonic() >= deadline:
+                logger.warning("Stopping scan of %s due to timeout.", mount)
+                break
+
+            current = stack.pop()
+            try:
+                with os.scandir(current) as entries:
+                    for entry in entries:
+                        entry_path = Path(entry.path)
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                stack.append(entry_path)
+                            elif entry.is_file(follow_symlinks=False) and entry_path.suffix.lower() in VIDEO_EXTENSIONS:
+                                candidates.append(entry_path)
+                        except OSError as exc:
+                            logger.debug("Skipping entry %s due to read/stat error: %s", entry_path, exc)
+            except OSError as exc:
+                logger.debug("Skipping directory %s due to scan error: %s", current, exc)
+
+        return candidates
 
     def _discover_usb_mounts(self) -> list[Path]:
         mounts: set[Path] = set()
@@ -327,8 +360,17 @@ def main() -> None:
     if args.diagnose_keyboard:
         raise SystemExit(diagnose_keyboard(args.diagnose_seconds))
 
-    player = RandomVideoPlayer(debug=args.debug)
-    player.run()
+    while True:
+        player = RandomVideoPlayer(debug=args.debug)
+        try:
+            player.run()
+        except Exception:
+            logger.exception("Unhandled player error; restarting player loop in 2s.")
+            time.sleep(2)
+            continue
+
+        logger.warning("Player loop exited unexpectedly; restarting in 2s.")
+        time.sleep(2)
 
 
 if __name__ == "__main__":
