@@ -31,12 +31,23 @@ detect_drm_mode() {
   local modes_output preferred
   preferred=""
 
+  # Allow explicit installer override.
+  if [[ -n "${MPV_DRM_MODE:-}" ]]; then
+    printf '%s' "${MPV_DRM_MODE}"
+    return 0
+  fi
+
   if command -v modetest >/dev/null 2>&1; then
     modes_output="$(modetest -M vc4 -c 2>/dev/null || true)"
     if [[ -n "$modes_output" ]]; then
       preferred="$(printf '%s\n' "$modes_output" | grep -Eo "[0-9]{3,4}x[0-9]{3,4}@[0-9]{2,3}(\.[0-9]+)?" | head -n 1 || true)"
       if printf '%s\n' "$modes_output" | grep -Eq "1920x1080@60(\.00)?"; then
         preferred="1920x1080@60"
+      fi
+
+      # Some modetest builds show mode + refresh in separate columns (e.g. 1920x1080 60.00).
+      if [[ -z "$preferred" ]]; then
+        preferred="$(printf '%s\n' "$modes_output" | awk '/[0-9]{3,4}x[0-9]{3,4}/ {for (i=1; i<=NF; i++) {if ($i ~ /^[0-9]{3,4}x[0-9]{3,4}$/ && (i+1)<=NF && $(i+1) ~ /^[0-9]+(\.[0-9]+)?$/) {printf "%s@%s\n", $i, $(i+1); exit}}}' | head -n 1 || true)"
       fi
     fi
   fi
@@ -48,9 +59,17 @@ detect_drm_mode() {
         echo "1920x1080@60"
         break
       fi
+      if head -n 30 "$f" | grep -Eq '^1920x1080p60$'; then
+        echo "1920x1080@60"
+        break
+      fi
       head -n 1 "$f" | sed -n '1p' | awk '{print $1 "@60"}'
       break
     done)"
+  fi
+
+  if [[ -z "$preferred" ]]; then
+    preferred="1920x1080@60"
   fi
 
   printf '%s' "$preferred"
@@ -65,19 +84,11 @@ write_env_file() {
   {
     echo "# Managed by install.sh"
     echo "# Override values here if needed, then restart rpi-random-player.service"
-    if [[ -n "$drm_mode" ]]; then
-      echo "MPV_DRM_MODE=$drm_mode"
-    else
-      echo "# MPV_DRM_MODE=1920x1080@60"
-    fi
+    echo "MPV_DRM_MODE=$drm_mode"
     echo "AUDIO_DEVICE=$audio_device"
   } | sudo tee "$ENV_FILE" >/dev/null
 
-  if [[ -n "$drm_mode" ]]; then
-    echo "Configured MPV_DRM_MODE=$drm_mode in $ENV_FILE"
-  else
-    echo "Could not auto-detect a DRM mode; leaving MPV_DRM_MODE unset in $ENV_FILE"
-  fi
+  echo "Configured MPV_DRM_MODE=$drm_mode in $ENV_FILE"
   echo "Configured AUDIO_DEVICE=$audio_device in $ENV_FILE"
 }
 
