@@ -32,6 +32,7 @@ MPV_BASE_CMD = [
     "--quiet",
     "--no-osc",
     "--no-osd-bar",
+    "--ao=alsa",
 ]
 
 logger = logging.getLogger("rpi_random_player")
@@ -49,6 +50,7 @@ class RandomVideoPlayer:
         self.auto_restart = False
         self.running = True
         self.debug = debug
+        self.classification_cache: dict[Path, tuple[int, int, str]] = {}
 
     def run(self) -> None:
         keyboards = self._open_keyboard_devices()
@@ -189,7 +191,32 @@ class RandomVideoPlayer:
                 if path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS:
                     candidates.append(path)
 
-        videos = [VideoInfo(path=path, bucket=self.classify_video(path)) for path in candidates]
+        logger.info("Found %d candidate video files", len(candidates))
+        started_at = time.monotonic()
+        cache_hits = 0
+        videos: list[VideoInfo] = []
+        for index, path in enumerate(candidates, start=1):
+            try:
+                stat = path.stat()
+            except OSError as exc:
+                logger.debug("Skipping unreadable candidate %s: %s", path, exc)
+                continue
+
+            cached = self.classification_cache.get(path)
+            if cached and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+                bucket = cached[2]
+                cache_hits += 1
+            else:
+                bucket = self.classify_video(path)
+                self.classification_cache[path] = (stat.st_mtime_ns, stat.st_size, bucket)
+
+            videos.append(VideoInfo(path=path, bucket=bucket))
+            if index % 25 == 0:
+                logger.info("Classified %d/%d files...", index, len(candidates))
+
+        elapsed = time.monotonic() - started_at
+        logger.info("Classification completed in %.2fs (cache hits: %d/%d)", elapsed, cache_hits, len(candidates))
+
         if videos:
             safe = sum(video.bucket == "safe" for video in videos)
             medium = sum(video.bucket == "medium" for video in videos)

@@ -103,6 +103,16 @@ sudo python3 player.py --debug --diagnose-keyboard --diagnose-seconds 30
 
 Expected: you should see `EVENT ... keycode=KEY_S` and `EVENT ... keycode=KEY_E` logs when pressing keys.
 
+
+If you see `pw.conf: can't load config client.conf` from `mpv`, this is usually a PipeWire warning and playback can still work. The player forces ALSA output (`--ao=alsa`) to reduce this noise on Raspberry Pi OS Lite.
+
+If `S` seems to "hang" after `Detected mounts for scanning`, watch for new progress logs:
+- `Found N candidate video files`
+- `Classified X/N files...`
+- `Classification completed in ...`
+
+The first scan on a large USB can take time because each file is probed; subsequent starts are faster due to in-memory classification cache.
+
 3. Run the player in foreground with debug logs:
 
 ```bash
