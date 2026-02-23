@@ -19,6 +19,10 @@ from evdev import ecodes
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv"}
 USB_SCAN_ROOTS = [Path("/media"), Path("/run/media"), Path("/mnt")]
+USB_AUTOMOUNT_POINT = Path(os.environ.get("USB_AUTOMOUNT_POINT", "/mnt/usb"))
+PREFERRED_USB_MOUNT_POINT = Path(os.environ.get("USB_MOUNT_POINT", "/mnt/usb"))
+USB_DEVICE_GLOB = "sd*[0-9]"
+SUPPORTED_USB_FILESYSTEMS = {"vfat", "exfat", "ntfs", "ext4", "ext3", "ext2"}
 SCAN_TIMEOUT_SECONDS = 20.0
 POLL_INTERVAL_SECONDS = 0.05
 HDMI_STATUS_TO_AUDIO_DEVICE = {
@@ -210,18 +214,21 @@ class RandomVideoPlayer:
     def refresh_candidates(self, reason: str) -> None:
         started = time.monotonic()
         deadline = started + SCAN_TIMEOUT_SECONDS
-        candidates: list[Path] = []
-        mounts = self._discover_usb_mounts()
-        logger.info("Refreshing video list (%s). Detected mounts: %s", reason, ", ".join(str(m) for m in mounts) if mounts else "<none>")
-        for mount in mounts:
-            if time.monotonic() >= deadline:
-                logger.warning(
-                    "USB scan timeout reached after %.1fs; using partial results.",
-                    SCAN_TIMEOUT_SECONDS,
-                )
-                break
 
-            candidates.extend(self._collect_videos_under_mount(mount, deadline))
+        mounts = self._discover_usb_mounts()
+        if not mounts:
+            logger.info("No USB mounts detected; attempting auto-mount.")
+            self._attempt_usb_automount()
+            mounts = self._discover_usb_mounts()
+
+        candidates = self._scan_videos_from_mounts(mounts, deadline, reason)
+
+        # Handle stale/empty mount points: re-attempt mount and scan once more.
+        if not candidates:
+            logger.info("No videos found in detected mounts; retrying mount+scan once.")
+            self._attempt_usb_automount()
+            mounts = self._discover_usb_mounts()
+            candidates = self._scan_videos_from_mounts(mounts, deadline, f"{reason}-retry")
 
         self.video_candidates = candidates
         elapsed = time.monotonic() - started
@@ -253,28 +260,118 @@ class RandomVideoPlayer:
 
         return candidates
 
+    def _scan_videos_from_mounts(self, mounts: list[Path], deadline: float, reason: str) -> list[Path]:
+        candidates: list[Path] = []
+        logger.info(
+            "Refreshing video list (%s). Detected mounts: %s",
+            reason,
+            ", ".join(str(m) for m in mounts) if mounts else "<none>",
+        )
+
+        for mount in mounts:
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "USB scan timeout reached after %.1fs; using partial results.",
+                    SCAN_TIMEOUT_SECONDS,
+                )
+                break
+
+            if not os.path.ismount(mount):
+                logger.warning("Skipping non-mounted path listed as USB mount: %s", mount)
+                continue
+
+            mount_candidates = self._collect_videos_under_mount(mount, deadline)
+            logger.info("Scanned mount %s -> %d video file(s)", mount, len(mount_candidates))
+            candidates.extend(mount_candidates)
+
+        return candidates
+
+
     def _discover_usb_mounts(self) -> list[Path]:
-        mounts: set[Path] = set()
+        mounts_by_source: dict[str, list[Path]] = {}
+        proc_mounts = Path("/proc/mounts")
+        if not proc_mounts.exists():
+            return []
+
+        for line in proc_mounts.read_text(encoding="utf-8", errors="ignore").splitlines():
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+
+            source, mountpoint, fs_type = parts[:3]
+            mount_path = Path(mountpoint)
+            if not source.startswith("/dev/sd"):
+                continue
+            if fs_type not in SUPPORTED_USB_FILESYSTEMS:
+                continue
+            if not any(str(mount_path).startswith(str(root)) for root in USB_SCAN_ROOTS):
+                continue
+            if not mount_path.exists() or not os.path.ismount(mount_path):
+                continue
+
+            mounts_by_source.setdefault(source, []).append(mount_path)
+
+        selected_mounts: list[Path] = []
+        for source, mountpoints in mounts_by_source.items():
+            unique = sorted(set(mountpoints))
+            preferred = next((m for m in unique if m == PREFERRED_USB_MOUNT_POINT), None)
+            selected = preferred or unique[0]
+            if len(unique) > 1:
+                logger.info(
+                    "Device %s mounted at multiple paths (%s); using %s",
+                    source,
+                    ", ".join(str(m) for m in unique),
+                    selected,
+                )
+            selected_mounts.append(selected)
+
+        return sorted(selected_mounts)
+
+    def _attempt_usb_automount(self) -> None:
+        mounted_sources: set[str] = set()
         proc_mounts = Path("/proc/mounts")
         if proc_mounts.exists():
             for line in proc_mounts.read_text(encoding="utf-8", errors="ignore").splitlines():
                 parts = line.split()
-                if len(parts) < 3:
-                    continue
-                source, mountpoint, fs_type = parts[:3]
-                if not source.startswith("/dev/sd"):
-                    continue
-                if fs_type in {"vfat", "exfat", "ntfs", "ext4", "ext3", "ext2"}:
-                    mounts.add(Path(mountpoint))
+                if len(parts) >= 2:
+                    mounted_sources.add(parts[0])
 
-        for root in USB_SCAN_ROOTS:
-            if not root.exists():
+        devices = sorted(Path("/dev").glob(USB_DEVICE_GLOB))
+        if not devices:
+            logger.debug("No /dev/%s device nodes found for auto-mount attempt.", USB_DEVICE_GLOB)
+            return
+
+        mounted_any = False
+        for device in devices:
+            source = str(device)
+            if source in mounted_sources:
                 continue
-            for entry in root.iterdir():
-                if entry.is_dir():
-                    mounts.add(entry)
 
-        return sorted(mounts)
+            target = USB_AUTOMOUNT_POINT if not mounted_any else Path(f"{USB_AUTOMOUNT_POINT}-{device.name}")
+            try:
+                target.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                logger.warning("Could not create mount directory %s: %s", target, exc)
+                continue
+
+            result = subprocess.run(
+                ["mount", source, str(target)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0:
+                logger.info("Mounted USB partition %s at %s", source, target)
+                mounted_any = True
+                continue
+
+            logger.warning(
+                "Auto-mount failed for %s -> %s (code=%s): %s",
+                source,
+                target,
+                result.returncode,
+                (result.stderr or result.stdout).strip() or "no output",
+            )
 
     def select_video(self, videos: list[Path]) -> Optional[Path]:
         if not videos:
