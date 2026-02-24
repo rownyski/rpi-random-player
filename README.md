@@ -85,7 +85,7 @@ sudo systemctl enable --now rpi-random-player.service
 
 Compatibility note: installer also drops `player.service` for older docs, but the canonical unit name is `rpi-random-player.service`.
 
-To ensure USB is mounted after reboot, the systemd unit now runs a pre-start mount step using:
+Installer configures the service to avoid strict pre-start mounting, so startup does not fail on fresh systems when `USB_MOUNT_DEVICE` is not yet valid. USB discovery/mounting is handled by the Python player at runtime. If you want strict service-side mounting, configure:
 
 - `USB_MOUNT_DEVICE` (default: `/dev/disk/by-label/MEDIA`)
 - `USB_MOUNT_POINT` (default: `/mnt/usb`)

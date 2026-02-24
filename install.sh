@@ -37,6 +37,19 @@ clear_forced_audio_override() {
   done
 }
 
+configure_service_usb_automount() {
+  local dropin_dir dropin_file
+  dropin_dir="/etc/systemd/system/$SERVICE_NAME.d"
+  dropin_file="$dropin_dir/override.conf"
+  sudo mkdir -p "$dropin_dir"
+  {
+    echo "[Service]"
+    echo "ExecStartPre="
+    echo "ExecStartPre=/bin/mkdir -p \${USB_MOUNT_POINT}"
+  } | sudo tee "$dropin_file" >/dev/null
+  echo "Configured $dropin_file to disable strict pre-mount and rely on Python USB auto-mount."
+}
+
 detect_audio_device() {
   local connector
 
@@ -158,6 +171,7 @@ sudo cp "$INSTALL_DIR/player.service" "/etc/systemd/system/$SERVICE_NAME"
 # Backward-compatible alias for older instructions that referenced player.service.
 sudo cp "$INSTALL_DIR/player.service" "/etc/systemd/system/$LEGACY_SERVICE_NAME"
 clear_forced_audio_override
+configure_service_usb_automount
 sudo systemctl daemon-reload
 if sudo systemctl list-unit-files | grep -q "^$LEGACY_SERVICE_NAME"; then
   sudo systemctl disable "$LEGACY_SERVICE_NAME" >/dev/null 2>&1 || true
