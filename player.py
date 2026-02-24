@@ -25,11 +25,9 @@ USB_DEVICE_GLOB = "sd*[0-9]"
 SUPPORTED_USB_FILESYSTEMS = {"vfat", "exfat", "ntfs", "ext4", "ext3", "ext2"}
 SCAN_TIMEOUT_SECONDS = 20.0
 POLL_INTERVAL_SECONDS = 0.05
-HDMI_STATUS_TO_AUDIO_DEVICE = {
-    Path("/sys/class/drm/card1-HDMI-A-1/status"): "alsa/plughw:CARD=vc4hdmi0,DEV=0",
-    Path("/sys/class/drm/card1-HDMI-A-2/status"): "alsa/plughw:CARD=vc4hdmi1,DEV=0",
-    Path("/sys/class/drm/card0-HDMI-A-1/status"): "alsa/plughw:CARD=vc4hdmi0,DEV=0",
-    Path("/sys/class/drm/card0-HDMI-A-2/status"): "alsa/plughw:CARD=vc4hdmi1,DEV=0",
+HDMI_AUDIO_BY_CONNECTOR_SUFFIX = {
+    "HDMI-A-1": "alsa/plughw:CARD=vc4hdmi0,DEV=0",
+    "HDMI-A-2": "alsa/plughw:CARD=vc4hdmi1,DEV=0",
 }
 
 MPV_BASE_CMD = [
@@ -162,15 +160,43 @@ class RandomVideoPlayer:
             logger.info("Using forced audio device from AUDIO_DEVICE=%s", forced)
             return [f"--audio-device={forced}"]
 
-        # Auto-detect connected HDMI connector and map to ALSA card.
-        for status_path, audio_device in HDMI_STATUS_TO_AUDIO_DEVICE.items():
+        # Auto-detect HDMI output. Prefer an enabled connector, then fallback to connected.
+        candidates: list[tuple[str, str]] = []
+        for status_path in sorted(Path("/sys/class/drm").glob("card*-HDMI-A-*/status")):
+            connector_name = status_path.parent.name
+            connector_suffix = next(
+                (suffix for suffix in HDMI_AUDIO_BY_CONNECTOR_SUFFIX if connector_name.endswith(suffix)),
+                "",
+            )
+            if not connector_suffix:
+                continue
+
             try:
                 status = status_path.read_text(encoding="utf-8", errors="ignore").strip().lower()
             except OSError:
                 continue
-            if status == "connected":
-                logger.info("Detected active HDMI connector %s -> %s", status_path.parent.name, audio_device)
+
+            if status != "connected":
+                continue
+
+            audio_device = HDMI_AUDIO_BY_CONNECTOR_SUFFIX[connector_suffix]
+            enabled_path = status_path.parent / "enabled"
+            enabled = ""
+            try:
+                enabled = enabled_path.read_text(encoding="utf-8", errors="ignore").strip().lower()
+            except OSError:
+                pass
+
+            if enabled == "enabled":
+                logger.info("Detected enabled HDMI connector %s -> %s", connector_name, audio_device)
                 return [f"--audio-device={audio_device}"]
+
+            candidates.append((connector_name, audio_device))
+
+        if candidates:
+            connector_name, audio_device = candidates[0]
+            logger.info("Detected connected HDMI connector %s -> %s", connector_name, audio_device)
+            return [f"--audio-device={audio_device}"]
 
         logger.info("No active HDMI connector detected; using ALSA default audio routing.")
         return []

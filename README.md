@@ -132,7 +132,7 @@ sudo python3 player.py --debug --diagnose-keyboard --diagnose-seconds 30
 Expected: you should see `EVENT ... keycode=KEY_S` and `EVENT ... keycode=KEY_E` logs when pressing keys.
 
 
-If you see `pw.conf: can't load config client.conf` from `mpv`, this is usually a PipeWire warning and playback can still work. The player forces ALSA output (`--ao=alsa`) and auto-detects the connected HDMI port for `--audio-device` (vc4hdmi0/vc4hdmi1). You can override manually with `AUDIO_DEVICE=alsa/plughw:CARD=vc4hdmi1,DEV=0`.
+If you see `pw.conf: can't load config client.conf` from `mpv`, this is usually a PipeWire warning and playback can still work. The player forces ALSA output (`--ao=alsa`) and auto-detects HDMI for `--audio-device` (vc4hdmi0/vc4hdmi1), preferring connectors marked `enabled` and falling back to `connected`. You can override manually with `AUDIO_DEVICE=alsa/plughw:CARD=vc4hdmi1,DEV=0`.
 For motion pacing issues on specific TVs, tune `MPV_VIDEO_SYNC` in `/etc/default/rpi-random-player` (default is `audio`; alternatives include `display-tempo` and `display-resample`).
 
 On START (`S`), the player refreshes the file list from USB and picks a random file.
