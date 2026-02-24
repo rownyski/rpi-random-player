@@ -158,7 +158,11 @@ print_available_modes
 sudo git config --global --add safe.directory "$INSTALL_DIR" >/dev/null 2>&1 || true
 
 if [[ -d "$INSTALL_DIR/.git" ]]; then
-  sudo git -C "$INSTALL_DIR" pull --ff-only
+  if ! sudo git -C "$INSTALL_DIR" pull --ff-only; then
+    echo "Existing repo update failed; removing $INSTALL_DIR and cloning clean copy."
+    sudo rm -rf "$INSTALL_DIR"
+    sudo git clone "$REPO_URL" "$INSTALL_DIR"
+  fi
 else
   sudo rm -rf "$INSTALL_DIR"
   sudo git clone "$REPO_URL" "$INSTALL_DIR"
@@ -173,6 +177,8 @@ sudo cp "$INSTALL_DIR/player.service" "/etc/systemd/system/$LEGACY_SERVICE_NAME"
 clear_forced_audio_override
 configure_service_usb_automount
 sudo systemctl daemon-reload
+sudo systemctl unmask "$SERVICE_NAME" >/dev/null 2>&1 || true
+sudo systemctl unmask "$LEGACY_SERVICE_NAME" >/dev/null 2>&1 || true
 if sudo systemctl list-unit-files | grep -q "^$LEGACY_SERVICE_NAME"; then
   sudo systemctl disable "$LEGACY_SERVICE_NAME" >/dev/null 2>&1 || true
   sudo systemctl stop "$LEGACY_SERVICE_NAME" >/dev/null 2>&1 || true
