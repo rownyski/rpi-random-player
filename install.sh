@@ -17,7 +17,7 @@ print_available_modes() {
       echo "== $f =="
       head -n 30 "$f" || true
     done
-  fi
+  done
 }
 
 is_valid_drm_mode() {
