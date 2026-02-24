@@ -62,10 +62,10 @@ curl -sSL https://github.com/rownyski/rpi-random-player/raw/main/install.sh | RE
 - Fullscreen playback uses:
 
 ```text
---fullscreen --vo=gpu --gpu-context=drm --hwdec=drm --video-sync=display-resample --ao=alsa --no-terminal --quiet --no-osc --no-osd-bar
+--fullscreen --vo=gpu --gpu-context=drm --hwdec=drm --video-sync=audio --ao=alsa --no-terminal --quiet --no-osc --no-osd-bar
 ```
 
-Installer now auto-detects HDMI modes using `modetest -M vc4 -c` (fallback: `/sys/class/drm/card*-HDMI-A-*/modes`) and writes `MPV_DRM_MODE` to `/etc/default/rpi-random-player`. It prefers `1920x1080@60` when available and falls back to `1920x1080@60` if detection fails, so the service still gets a deterministic mode. It also writes `AUDIO_DEVICE` based on connected HDMI ports (prefers HDMI-A-2 / `vc4hdmi1`) and `MPV_VIDEO_SYNC` (default: `display-resample`) for smoother TV motion.
+Installer now prints available HDMI modes (`modetest -M vc4 -c` when available, otherwise `/sys/class/drm/card*-HDMI-A-*/modes`) and writes `MPV_DRM_MODE` to `/etc/default/rpi-random-player`. It now pins a known-good `1920x1080@60` deterministic mode to avoid bad auto-parsed values. It writes `MPV_VIDEO_SYNC` (default: `audio`) and leaves `AUDIO_DEVICE` unset by default so playback auto-detects the connected HDMI output each start.
 
 ## Service management
 
@@ -132,8 +132,8 @@ sudo python3 player.py --debug --diagnose-keyboard --diagnose-seconds 30
 Expected: you should see `EVENT ... keycode=KEY_S` and `EVENT ... keycode=KEY_E` logs when pressing keys.
 
 
-If you see `pw.conf: can't load config client.conf` from `mpv`, this is usually a PipeWire warning and playback can still work. The player forces ALSA output (`--ao=alsa`) and auto-detects the connected HDMI port for `--audio-device` (vc4hdmi0/vc4hdmi1). You can override manually with `AUDIO_DEVICE=alsa/plughw:CARD=vc4hdmi1,DEV=0`.
-For motion pacing issues on specific TVs, tune `MPV_VIDEO_SYNC` in `/etc/default/rpi-random-player` (default is `display-resample`; alternatives include `audio` and `display-tempo`).
+If you see `pw.conf: can't load config client.conf` from `mpv`, this is usually a PipeWire warning and playback can still work. The player forces ALSA output (`--ao=alsa`) and auto-detects HDMI for `--audio-device` (vc4hdmi0/vc4hdmi1), preferring connectors marked `enabled` and falling back to `connected`. You can override manually with `AUDIO_DEVICE=alsa/plughw:CARD=vc4hdmi1,DEV=0`.
+For motion pacing issues on specific TVs, tune `MPV_VIDEO_SYNC` in `/etc/default/rpi-random-player` (default is `audio`; alternatives include `display-tempo` and `display-resample`).
 
 On START (`S`), the player refreshes the file list from USB and picks a random file.
 On auto-next (natural end), it reuses the preloaded list for fast transitions.
