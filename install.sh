@@ -76,18 +76,21 @@ detect_drm_mode() {
 }
 
 write_env_file() {
-  local drm_mode audio_device
+  local drm_mode audio_device video_sync
   drm_mode="$(detect_drm_mode)"
   audio_device="$(detect_audio_device)"
+  video_sync="${MPV_VIDEO_SYNC:-display-resample}"
 
   sudo mkdir -p "$(dirname "$ENV_FILE")"
   {
     echo "# Managed by install.sh"
     echo "# Override values here if needed, then restart rpi-random-player.service"
+    echo "MPV_VIDEO_SYNC=$video_sync"
     echo "MPV_DRM_MODE=$drm_mode"
     echo "AUDIO_DEVICE=$audio_device"
   } | sudo tee "$ENV_FILE" >/dev/null
 
+  echo "Configured MPV_VIDEO_SYNC=$video_sync in $ENV_FILE"
   echo "Configured MPV_DRM_MODE=$drm_mode in $ENV_FILE"
   echo "Configured AUDIO_DEVICE=$audio_device in $ENV_FILE"
 }
