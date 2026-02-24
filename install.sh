@@ -7,6 +7,23 @@ SERVICE_NAME="rpi-random-player.service"
 LEGACY_SERVICE_NAME="player.service"
 ENV_FILE="/etc/default/rpi-random-player"
 
+print_available_modes() {
+  echo "Inspecting available HDMI modes..."
+  if command -v modetest >/dev/null 2>&1; then
+    modetest -M vc4 -c | sed -n '1,260p' || true
+  else
+    for f in /sys/class/drm/card*-HDMI-A-*/modes; do
+      [[ -r "$f" ]] || continue
+      echo "== $f =="
+      head -n 30 "$f" || true
+    done
+  fi
+}
+
+is_valid_drm_mode() {
+  [[ "$1" =~ ^[0-9]{3,4}x[0-9]{3,4}@[0-9]{2,3}(\.[0-9]+)?$ ]]
+}
+
 detect_audio_device() {
   local connector
 
@@ -28,47 +45,47 @@ detect_audio_device() {
 }
 
 detect_drm_mode() {
-  local modes_output preferred
+  local preferred mode_file
   preferred=""
 
   # Allow explicit installer override.
   if [[ -n "${MPV_DRM_MODE:-}" ]]; then
-    printf '%s' "${MPV_DRM_MODE}"
-    return 0
+    if is_valid_drm_mode "${MPV_DRM_MODE}"; then
+      printf '%s' "${MPV_DRM_MODE}"
+      return 0
+    fi
+    echo "Ignoring invalid MPV_DRM_MODE override: ${MPV_DRM_MODE}" >&2
   fi
 
-  if command -v modetest >/dev/null 2>&1; then
-    modes_output="$(modetest -M vc4 -c 2>/dev/null || true)"
-    if [[ -n "$modes_output" ]]; then
-      preferred="$(printf '%s\n' "$modes_output" | grep -Eo "[0-9]{3,4}x[0-9]{3,4}@[0-9]{2,3}(\.[0-9]+)?" | head -n 1 || true)"
-      if printf '%s\n' "$modes_output" | grep -Eq "1920x1080@60(\.00)?"; then
-        preferred="1920x1080@60"
-      fi
+  # Prefer the connected HDMI connector(s) only.
+  for mode_file in /sys/class/drm/card*-HDMI-A-*/modes; do
+    [[ -r "$mode_file" ]] || continue
+    status_file="${mode_file%/modes}/status"
+    if [[ -r "$status_file" ]]; then
+      status="$(tr '[:upper:]' '[:lower:]' <"$status_file" 2>/dev/null || true)"
+      [[ "$status" == "connected" ]] || continue
+    fi
 
-      # Some modetest builds show mode + refresh in separate columns (e.g. 1920x1080 60.00).
-      if [[ -z "$preferred" ]]; then
-        preferred="$(printf '%s\n' "$modes_output" | awk '/[0-9]{3,4}x[0-9]{3,4}/ {for (i=1; i<=NF; i++) {if ($i ~ /^[0-9]{3,4}x[0-9]{3,4}$/ && (i+1)<=NF && $(i+1) ~ /^[0-9]+(\.[0-9]+)?$/) {printf "%s@%s\n", $i, $(i+1); exit}}}' | head -n 1 || true)"
-      fi
+    # Force a known-good deterministic mode when available.
+    if head -n 60 "$mode_file" | grep -Eq '^1920x1080$|^1920x1080p60$'; then
+      preferred="1920x1080@60"
+      break
     fi
   fi
 
   if [[ -z "$preferred" ]]; then
-    preferred="$(for f in /sys/class/drm/card*-HDMI-A-*/modes; do
-      [[ -r "$f" ]] || continue
-      if head -n 30 "$f" | grep -Eq '^1920x1080$'; then
-        echo "1920x1080@60"
+    # Fallback to any connector listing 1080p.
+    for mode_file in /sys/class/drm/card*-HDMI-A-*/modes; do
+      [[ -r "$mode_file" ]] || continue
+      if head -n 60 "$mode_file" | grep -Eq '^1920x1080$|^1920x1080p60$'; then
+        preferred="1920x1080@60"
         break
       fi
-      if head -n 30 "$f" | grep -Eq '^1920x1080p60$'; then
-        echo "1920x1080@60"
-        break
-      fi
-      head -n 1 "$f" | sed -n '1p' | awk '{print $1 "@60"}'
-      break
-    done)"
+    done
   fi
 
   if [[ -z "$preferred" ]]; then
+    # Final deterministic fallback.
     preferred="1920x1080@60"
   fi
 
@@ -79,7 +96,7 @@ write_env_file() {
   local drm_mode audio_device video_sync
   drm_mode="$(detect_drm_mode)"
   audio_device="$(detect_audio_device)"
-  video_sync="${MPV_VIDEO_SYNC:-display-resample}"
+  video_sync="${MPV_VIDEO_SYNC:-audio}"
 
   sudo mkdir -p "$(dirname "$ENV_FILE")"
   {
@@ -103,6 +120,7 @@ fi
 sudo apt-get update
 sudo apt-get -y upgrade
 sudo apt-get install -y mpv ffmpeg python3 python3-pip python3-evdev git libdrm-tests
+print_available_modes
 
 if [[ -d "$INSTALL_DIR/.git" ]]; then
   sudo git -C "$INSTALL_DIR" pull --ff-only

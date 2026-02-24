@@ -184,8 +184,8 @@ class RandomVideoPlayer:
         return [f"--drm-mode={drm_mode}"]
 
     def _resolve_video_sync_arg(self) -> list[str]:
-        # Display-locked sync reduces judder on TVs that are sensitive to audio-locked pacing.
-        video_sync = os.environ.get("MPV_VIDEO_SYNC", "display-resample").strip()
+        # Default to audio-locked sync; this matched known-good behavior on target Pi4 setup.
+        video_sync = os.environ.get("MPV_VIDEO_SYNC", "audio").strip()
         if not video_sync:
             logger.info("MPV_VIDEO_SYNC is empty; using mpv default video sync behavior.")
             return []
