@@ -65,7 +65,7 @@ curl -sSL https://github.com/rownyski/rpi-random-player/raw/main/install.sh | RE
 --fullscreen --vo=gpu --gpu-context=drm --hwdec=drm --video-sync=audio --ao=alsa --no-terminal --quiet --no-osc --no-osd-bar
 ```
 
-Installer now prints available HDMI modes (`modetest -M vc4 -c` when available, otherwise `/sys/class/drm/card*-HDMI-A-*/modes`) and writes `MPV_DRM_MODE` to `/etc/default/rpi-random-player`. It now pins a known-good `1920x1080@60` deterministic mode to avoid bad auto-parsed values. It also writes `AUDIO_DEVICE` based on connected HDMI ports (prefers HDMI-A-2 / `vc4hdmi1`) and `MPV_VIDEO_SYNC` (default: `audio`) to match known-good Pi4 behavior.
+Installer now prints available HDMI modes (`modetest -M vc4 -c` when available, otherwise `/sys/class/drm/card*-HDMI-A-*/modes`) and writes `MPV_DRM_MODE` to `/etc/default/rpi-random-player`. It now pins a known-good `1920x1080@60` deterministic mode to avoid bad auto-parsed values. It writes `MPV_VIDEO_SYNC` (default: `audio`) and leaves `AUDIO_DEVICE` unset by default so playback auto-detects the connected HDMI output each start.
 
 ## Service management
 

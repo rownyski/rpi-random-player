@@ -93,10 +93,10 @@ detect_drm_mode() {
 }
 
 write_env_file() {
-  local drm_mode audio_device video_sync
+  local drm_mode video_sync forced_audio_device
   drm_mode="$(detect_drm_mode)"
-  audio_device="$(detect_audio_device)"
   video_sync="${MPV_VIDEO_SYNC:-audio}"
+  forced_audio_device="${AUDIO_DEVICE:-}"
 
   sudo mkdir -p "$(dirname "$ENV_FILE")"
   {
@@ -104,12 +104,20 @@ write_env_file() {
     echo "# Override values here if needed, then restart rpi-random-player.service"
     echo "MPV_VIDEO_SYNC=$video_sync"
     echo "MPV_DRM_MODE=$drm_mode"
-    echo "AUDIO_DEVICE=$audio_device"
+    if [[ -n "$forced_audio_device" ]]; then
+      echo "AUDIO_DEVICE=$forced_audio_device"
+    else
+      echo "# AUDIO_DEVICE=alsa/plughw:CARD=vc4hdmi0,DEV=0"
+    fi
   } | sudo tee "$ENV_FILE" >/dev/null
 
   echo "Configured MPV_VIDEO_SYNC=$video_sync in $ENV_FILE"
   echo "Configured MPV_DRM_MODE=$drm_mode in $ENV_FILE"
-  echo "Configured AUDIO_DEVICE=$audio_device in $ENV_FILE"
+  if [[ -n "$forced_audio_device" ]]; then
+    echo "Configured AUDIO_DEVICE=$forced_audio_device in $ENV_FILE"
+  else
+    echo "AUDIO_DEVICE left unset in $ENV_FILE (player auto-detects connected HDMI port)."
+  fi
 }
 
 if [[ -z "$REPO_URL" ]]; then
