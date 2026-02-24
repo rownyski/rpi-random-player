@@ -17,7 +17,7 @@ print_available_modes() {
       echo "== $f =="
       head -n 30 "$f" || true
     done
-  done
+  fi
 }
 
 is_valid_drm_mode() {
@@ -71,7 +71,7 @@ detect_drm_mode() {
       preferred="1920x1080@60"
       break
     fi
-  fi
+  done
 
   if [[ -z "$preferred" ]]; then
     # Fallback to any connector listing 1080p.
@@ -121,6 +121,7 @@ sudo apt-get update
 sudo apt-get -y upgrade
 sudo apt-get install -y mpv ffmpeg python3 python3-pip python3-evdev git libdrm-tests
 print_available_modes
+sudo git config --global --add safe.directory "$INSTALL_DIR" >/dev/null 2>&1 || true
 
 if [[ -d "$INSTALL_DIR/.git" ]]; then
   sudo git -C "$INSTALL_DIR" pull --ff-only
