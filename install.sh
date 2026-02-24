@@ -24,6 +24,19 @@ is_valid_drm_mode() {
   [[ "$1" =~ ^[0-9]{3,4}x[0-9]{3,4}@[0-9]{2,3}(\.[0-9]+)?$ ]]
 }
 
+clear_forced_audio_override() {
+  local dropin
+  for dropin in \
+    "/etc/systemd/system/$SERVICE_NAME.d/override.conf" \
+    "/etc/systemd/system/$LEGACY_SERVICE_NAME.d/override.conf"; do
+    [[ -f "$dropin" ]] || continue
+    if sudo grep -q '^Environment=AUDIO_DEVICE=' "$dropin"; then
+      sudo sed -i '/^Environment=AUDIO_DEVICE=/d' "$dropin"
+      echo "Removed forced AUDIO_DEVICE override from $dropin"
+    fi
+  done
+}
+
 detect_audio_device() {
   local connector
 
@@ -144,6 +157,7 @@ write_env_file
 sudo cp "$INSTALL_DIR/player.service" "/etc/systemd/system/$SERVICE_NAME"
 # Backward-compatible alias for older instructions that referenced player.service.
 sudo cp "$INSTALL_DIR/player.service" "/etc/systemd/system/$LEGACY_SERVICE_NAME"
+clear_forced_audio_override
 sudo systemctl daemon-reload
 if sudo systemctl list-unit-files | grep -q "^$LEGACY_SERVICE_NAME"; then
   sudo systemctl disable "$LEGACY_SERVICE_NAME" >/dev/null 2>&1 || true
