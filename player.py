@@ -38,7 +38,6 @@ MPV_BASE_CMD = [
     "--vo=gpu",
     "--gpu-context=drm",
     "--hwdec=drm",
-    "--video-sync=audio",
     "--no-terminal",
     "--quiet",
     "--no-osc",
@@ -184,6 +183,16 @@ class RandomVideoPlayer:
         logger.info("Using forced DRM mode from MPV_DRM_MODE=%s", drm_mode)
         return [f"--drm-mode={drm_mode}"]
 
+    def _resolve_video_sync_arg(self) -> list[str]:
+        # Display-locked sync reduces judder on TVs that are sensitive to audio-locked pacing.
+        video_sync = os.environ.get("MPV_VIDEO_SYNC", "display-resample").strip()
+        if not video_sync:
+            logger.info("MPV_VIDEO_SYNC is empty; using mpv default video sync behavior.")
+            return []
+
+        logger.info("Using mpv video sync mode from MPV_VIDEO_SYNC=%s", video_sync)
+        return [f"--video-sync={video_sync}"]
+
     def start_random_video(self, force_restart: bool, rescan: bool = True) -> None:
         if self.mpv_process and force_restart:
             logger.info("Force restart requested; stopping current video first.")
@@ -202,7 +211,13 @@ class RandomVideoPlayer:
         self.last_played = selected
         self.auto_restart = True
         self.mpv_process = subprocess.Popen(
-            [*MPV_BASE_CMD, *self._resolve_drm_mode_arg(), *self._resolve_audio_device_arg(), str(selected)],
+            [
+                *MPV_BASE_CMD,
+                *self._resolve_video_sync_arg(),
+                *self._resolve_drm_mode_arg(),
+                *self._resolve_audio_device_arg(),
+                str(selected),
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             preexec_fn=os.setsid,
