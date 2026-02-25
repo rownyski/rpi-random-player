@@ -22,7 +22,16 @@ USB_SCAN_ROOTS = [Path("/media"), Path("/run/media"), Path("/mnt")]
 USB_AUTOMOUNT_POINT = Path(os.environ.get("USB_AUTOMOUNT_POINT", "/mnt/usb"))
 PREFERRED_USB_MOUNT_POINT = Path(os.environ.get("USB_MOUNT_POINT", "/mnt/usb"))
 USB_DEVICE_GLOB = "sd*[0-9]"
-SUPPORTED_USB_FILESYSTEMS = {"vfat", "exfat", "ntfs", "ext4", "ext3", "ext2"}
+SUPPORTED_USB_FILESYSTEMS = {
+    "vfat",
+    "exfat",
+    "ntfs",
+    "ntfs3",
+    "fuseblk",  # NTFS via ntfs-3g commonly appears as fuseblk in /proc/mounts.
+    "ext4",
+    "ext3",
+    "ext2",
+}
 SCAN_TIMEOUT_SECONDS = 20.0
 POLL_INTERVAL_SECONDS = 0.05
 HDMI_AUDIO_BY_CONNECTOR_SUFFIX = {
@@ -378,32 +387,6 @@ class RandomVideoPlayer:
             selected_mounts.append(selected)
 
         return sorted(selected_mounts)
-
-    def _attempt_usb_automount(self) -> None:
-        mounted_sources: set[str] = set()
-        proc_mounts = Path("/proc/mounts")
-        if not proc_mounts.exists():
-            return []
-
-        for line in proc_mounts.read_text(encoding="utf-8", errors="ignore").splitlines():
-            parts = line.split()
-            if len(parts) < 3:
-                continue
-
-            source, mountpoint, fs_type = parts[:3]
-            mount_path = Path(mountpoint)
-            if not source.startswith("/dev/sd"):
-                continue
-            if fs_type not in SUPPORTED_USB_FILESYSTEMS:
-                continue
-            if not any(str(mount_path).startswith(str(root)) for root in USB_SCAN_ROOTS):
-                continue
-            if not mount_path.exists() or not os.path.ismount(mount_path):
-                continue
-
-            mounts.add(mount_path)
-
-        return sorted(mounts)
 
     def _attempt_usb_automount(self) -> None:
         mounted_sources: set[str] = set()

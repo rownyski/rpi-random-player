@@ -85,9 +85,11 @@ sudo systemctl enable --now rpi-random-player.service
 
 Compatibility note: installer also drops `player.service` for older docs, but the canonical unit name is `rpi-random-player.service`.
 
-Installer configures the service to avoid strict pre-start mounting, so startup does not fail on fresh systems when `USB_MOUNT_DEVICE` is not yet valid. USB discovery/mounting is handled by the Python player at runtime. If you want strict service-side mounting, configure:
+Installer configures the service to avoid strict pre-start mounting, so startup does not fail on fresh systems. USB discovery/mounting is handled by the Python player at runtime and does not depend on a fixed drive label/device. By default, it scans real mounts under `/media`, `/run/media`, and `/mnt`, and auto-mounts detected `/dev/sd*` partitions under `/mnt/usb*` when needed.
 
-- `USB_MOUNT_DEVICE` (default: `/dev/disk/by-label/MEDIA`)
+If you want strict service-side mounting, configure:
+
+- `USB_MOUNT_DEVICE` (example: `/dev/sda1`)
 - `USB_MOUNT_POINT` (default: `/mnt/usb`)
 
 If your drive label/device differs, create an override:
