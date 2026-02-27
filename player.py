@@ -170,6 +170,8 @@ class RandomVideoPlayer:
             logger.info("Using forced audio device from AUDIO_DEVICE=%s", forced)
             return [f"--audio-device={forced}"]
 
+        available_hdmi_audio_devices = self._discover_hdmi_alsa_devices()
+
         # Auto-detect HDMI output. Prefer an enabled connector, then fallback to connected.
         candidates: list[tuple[str, str]] = []
         for status_path in sorted(Path("/sys/class/drm").glob("card*-HDMI-A-*/status")):
@@ -189,7 +191,11 @@ class RandomVideoPlayer:
             if status != "connected":
                 continue
 
-            audio_device = HDMI_AUDIO_BY_CONNECTOR_SUFFIX[connector_suffix]
+            preferred_audio_device = HDMI_AUDIO_BY_CONNECTOR_SUFFIX[connector_suffix]
+            audio_device = self._best_matching_hdmi_audio_device(
+                preferred=preferred_audio_device,
+                available_devices=available_hdmi_audio_devices,
+            )
             enabled_path = status_path.parent / "enabled"
             enabled = ""
             try:
@@ -208,13 +214,12 @@ class RandomVideoPlayer:
             logger.info("Detected connected HDMI connector %s -> %s", connector_name, audio_device)
             return [f"--audio-device={audio_device}"]
 
-        fallback_audio_devices = self._discover_hdmi_alsa_devices()
-        if fallback_audio_devices:
+        if available_hdmi_audio_devices:
             logger.info(
                 "No connected HDMI connector reported; falling back to available ALSA HDMI card %s",
-                fallback_audio_devices[0],
+                available_hdmi_audio_devices[0],
             )
-            return [f"--audio-device={fallback_audio_devices[0]}"]
+            return [f"--audio-device={available_hdmi_audio_devices[0]}"]
 
         logger.info("No active HDMI connector detected; using ALSA default audio routing.")
         return []
@@ -230,13 +235,29 @@ class RandomVideoPlayer:
             return []
 
         detected: list[str] = []
-        for card_name in re.findall(r"\[(vc4hdmi\d+)\]", content):
+        for card_name in re.findall(r"\[(vc4hdmi(?:\d+)?)\]", content):
             if card_name not in detected:
                 detected.append(card_name)
 
-        # Prefer the primary HDMI card first for single-port devices (e.g., many Pi3 setups).
-        detected.sort(key=lambda name: int(name.replace("vc4hdmi", "")))
+        # Prefer single-card vc4hdmi first, then numbered cards (0, 1, ...).
+        def _card_order(name: str) -> tuple[int, int]:
+            if name == "vc4hdmi":
+                return (0, 0)
+            suffix = name.replace("vc4hdmi", "")
+            try:
+                return (1, int(suffix))
+            except ValueError:
+                return (2, 999)
+
+        detected.sort(key=_card_order)
         return [f"alsa/plughw:CARD={name},DEV=0" for name in detected]
+
+    def _best_matching_hdmi_audio_device(self, preferred: str, available_devices: list[str]) -> str:
+        if not available_devices:
+            return preferred
+        if preferred in available_devices:
+            return preferred
+        return available_devices[0]
 
     def _resolve_drm_mode_arg(self) -> list[str]:
         drm_mode = os.environ.get("MPV_DRM_MODE", "").strip()
