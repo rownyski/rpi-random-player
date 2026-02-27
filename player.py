@@ -235,7 +235,7 @@ class RandomVideoPlayer:
             return []
 
         detected: list[str] = []
-        for card_name in re.findall(r"\[(vc4hdmi(?:\d+)?)\]", content):
+        for card_name in re.findall(r"\[(vc4hdmi(?:\d+)?)\s*\]", content):
             if card_name not in detected:
                 detected.append(card_name)
 
