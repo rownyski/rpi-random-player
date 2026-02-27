@@ -66,8 +66,8 @@ detect_audio_device() {
     fi
   done
 
-  # Fallback that mirrors the known-working manual command from field testing.
-  printf '%s' "alsa/plughw:CARD=vc4hdmi1,DEV=0"
+  # Safe fallback for single-HDMI boards (for example many Pi3 setups).
+  printf '%s' "alsa/plughw:CARD=vc4hdmi0,DEV=0"
 }
 
 detect_drm_mode() {

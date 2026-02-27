@@ -7,6 +7,7 @@ import argparse
 import logging
 import os
 import random
+import re
 import select
 import signal
 import subprocess
@@ -207,8 +208,35 @@ class RandomVideoPlayer:
             logger.info("Detected connected HDMI connector %s -> %s", connector_name, audio_device)
             return [f"--audio-device={audio_device}"]
 
+        fallback_audio_devices = self._discover_hdmi_alsa_devices()
+        if fallback_audio_devices:
+            logger.info(
+                "No connected HDMI connector reported; falling back to available ALSA HDMI card %s",
+                fallback_audio_devices[0],
+            )
+            return [f"--audio-device={fallback_audio_devices[0]}"]
+
         logger.info("No active HDMI connector detected; using ALSA default audio routing.")
         return []
+
+    def _discover_hdmi_alsa_devices(self) -> list[str]:
+        cards_path = Path("/proc/asound/cards")
+        if not cards_path.exists():
+            return []
+
+        try:
+            content = cards_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return []
+
+        detected: list[str] = []
+        for card_name in re.findall(r"\[(vc4hdmi\d+)\]", content):
+            if card_name not in detected:
+                detected.append(card_name)
+
+        # Prefer the primary HDMI card first for single-port devices (e.g., many Pi3 setups).
+        detected.sort(key=lambda name: int(name.replace("vc4hdmi", "")))
+        return [f"alsa/plughw:CARD={name},DEV=0" for name in detected]
 
     def _resolve_drm_mode_arg(self) -> list[str]:
         drm_mode = os.environ.get("MPV_DRM_MODE", "").strip()
