@@ -56,6 +56,8 @@ curl -sSL https://github.com/rownyski/rpi-random-player/raw/main/install.sh | RE
 
 ## Runtime behavior
 
+MPV tuning is installed system-wide at `/etc/mpv/mpv.conf` (used by the root-run service) and also written for common local users (`pi`, `admin`, and the invoking sudo user when present) under `~/.config/mpv/mpv.conf`.
+
 - On each `S` press, USB storage is re-scanned.
 - Randomly selects from discovered `.mp4`/`.mkv` files (with immediate-repeat protection when 2+ videos exist).
 - `STOP` (`E`) sends `SIGTERM` to `mpv` immediately.
